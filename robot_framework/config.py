@@ -14,6 +14,27 @@ SCREENSHOT_SENDER = "robot@friend.dk"
 # Constant/Credential names
 ERROR_EMAIL = "Error Email"
 
+# boost.ai OAuth2 client: username = client_id, password = client_secret.
+BOOST_CREDENTIAL = "Muni Boost API"
+# SQL Server login (username/password). Added in Orchestrator once the DB is ready.
+SQL_CREDENTIAL = "Muni Statistik DB"
+
+
+# Application config (boost.ai statistics)
+# ----------------------------------------
+
+BOOST_TENANT = "ddh"                 # -> https://ddh.boost.ai
+BOOST_SCOPE = "analytics:v1"         # confirmed Statistics API v2 scope
+TIMEZONE = "Europe/Copenhagen"       # Danish time for from_date/to_date
+BACKFILL_DAYS = 0                    # TODO: first-run history, e.g. 365
+ENABLED_KPIS = ["conversations"]
+SINK_TYPE = "sqlite"                 # "sqlite" (local test) | "sqlserver" (prod)
+SQLITE_PATH = "local_data.sqlite"
+# SQL Server (production) — TODO: fill in
+DB_DRIVER = ""
+DB_SERVER = ""
+DB_DATABASE = ""
+
 
 # Queue specific configs
 # ----------------------

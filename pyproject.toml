@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "robot_framework"
-version = "0.0.1"
+version = "0.1.0"
 authors = [
   { name="ITK Development", email="itk-rpa@mkb.aarhus.dk" },
 ]
@@ -18,10 +18,20 @@ classifiers = [
 dependencies = [
     "OpenOrchestrator == 3.*",
     "Pillow == 10.*",
+    "requests == 2.*",
+    "python-dotenv == 1.*",
+    "tzdata",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pylint",
-  "flake8"
+  "flake8",
+  "pytest"
 ]
+
+[tool.setuptools]
+packages = ["robot_framework"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
