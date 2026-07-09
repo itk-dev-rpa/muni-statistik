@@ -157,3 +157,10 @@ cython_debug/
 
 .vscode/
 uv.lock
+
+# Discovery spike output (may contain tenant data)
+spike/out/
+
+# Local test database (SqliteSink)
+local_data.sqlite
+*.sqlite
