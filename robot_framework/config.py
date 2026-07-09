@@ -16,8 +16,10 @@ ERROR_EMAIL = "Error Email"
 
 # boost.ai OAuth2 client: username = client_id, password = client_secret.
 BOOST_CREDENTIAL = "Muni Boost API"
-# SQL Server login (username/password). Added in Orchestrator once the DB is ready.
-SQL_CREDENTIAL = "Muni Statistik DB"
+# Name of the OpenOrchestrator constant holding the SQL Server connection string
+# (a SQLAlchemy URL with trusted_connection). Kept in OO so the server/database can
+# change without a code change. Local dev has no connection string and uses SQLite.
+SQL_CONNECTION_STRING_CONSTANT = "Chat Statistics Connection String"
 
 
 # Application config (boost.ai statistics)
@@ -26,14 +28,27 @@ SQL_CREDENTIAL = "Muni Statistik DB"
 BOOST_TENANT = "ddh"                 # -> https://ddh.boost.ai
 BOOST_SCOPE = "analytics:v1"         # confirmed Statistics API v2 scope
 TIMEZONE = "Europe/Copenhagen"       # Danish time for from_date/to_date
-BACKFILL_DAYS = 0                    # TODO: first-run history, e.g. 365
-ENABLED_KPIS = ["conversations"]
-SINK_TYPE = "sqlite"                 # "sqlite" (local test) | "sqlserver" (prod)
-SQLITE_PATH = "local_data.sqlite"
-# SQL Server (production) — TODO: fill in
-DB_DRIVER = ""
-DB_SERVER = ""
-DB_DATABASE = ""
+SQLITE_PATH = "local_data.sqlite"    # local sink when no connection string
+
+# Muni launched February 2025; the first incremental run reaches back to here.
+BACKFILL_START = "2025-02-01"
+
+# Incremental ingest processes this many days per chunk (and per audited run),
+# so a failure only re-does the current chunk on the next run.
+CHUNK_DAYS = 7
+
+# Bump when a normalizer changes so re-ingested rows are traceable.
+INGEST_VERSION = 1
+
+# Channels to split every datapoint by (name, is_voice filter value).
+CHANNELS = [("chat", False), ("voice", True)]
+
+# Datapoints to ingest. Names must exist in robot_framework.kpis.REGISTRY.
+ENABLED_KPIS = [
+    "conversations", "human_transfer", "sentiment", "conversation_feedback",
+    "message_feedback", "conversation_insight", "token_usage",
+    "goals_started", "goals_completed", "intents", "human_chat_skill",
+]
 
 
 # Queue specific configs

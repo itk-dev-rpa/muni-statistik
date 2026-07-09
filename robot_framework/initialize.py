@@ -11,7 +11,8 @@ def initialize(orchestrator_connection: OrchestratorConnection) -> None:
     orchestrator_connection.log_trace("Initializing.")
 
     settings = Settings.from_config()
-    credentials.from_orchestrator(orchestrator_connection)
+    creds = credentials.from_orchestrator(orchestrator_connection)
+    sink = "SQL Server" if creds.sql_connection_string else "SQLite (local)"
     orchestrator_connection.log_info(
         f"Configuration OK. Tenant '{settings.tenant}', "
-        f"KPIs: {settings.enabled_kpis}, sink: {settings.sink_type}.")
+        f"KPIs: {settings.enabled_kpis}, sink: {sink}.")

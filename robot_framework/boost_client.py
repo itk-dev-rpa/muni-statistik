@@ -88,9 +88,10 @@ class BoostClient:
 
     # --- Endpoint wrappers -------------------------------------------------
 
-    def distribution(self, stat: str, date_range: DateRange) -> Any:
+    def distribution(self, stat: str, date_range: DateRange,
+                     **filters: Any) -> Any:
         """POST /distribution/{stat}."""
-        return self.post(f"/distribution/{stat}", _filter(date_range))
+        return self.post(f"/distribution/{stat}", _filter(date_range, **filters))
 
     def frequency(self, stat: str, date_range: DateRange,
                   limit: int | None = None, **filters: Any) -> Any:
@@ -100,14 +101,14 @@ class BoostClient:
                          _filter(date_range, **filters), params)
 
     def histogram(self, stat: str, date_range: DateRange,
-                  group_by: str = "day") -> Any:
+                  group_by: str = "day", **filters: Any) -> Any:
         """POST /histogram/{stat} grouped by time period."""
         return self.post(f"/histogram/{stat}",
-                         _filter(date_range, group_by=group_by))
+                         _filter(date_range, group_by=group_by, **filters))
 
-    def token_usage(self, date_range: DateRange) -> Any:
+    def token_usage(self, date_range: DateRange, **filters: Any) -> Any:
         """POST /aggregates/token_usage."""
-        return self.post("/aggregates/token_usage", _filter(date_range))
+        return self.post("/aggregates/token_usage", _filter(date_range, **filters))
 
 
 def _filter(date_range: DateRange, **extra: Any) -> dict:

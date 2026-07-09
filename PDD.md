@@ -20,16 +20,21 @@ fordelinger og frekvenser — ikke samtaleindhold.
 ## 2. Trigger & output
 
 - **Trigger:** Scheduled (natlig) via OpenOrchestrator. Linear framework (intern arbejdshentning).
-- **Input:** datointerval. Default = gårsdagen (`[i går 00:00, i dag 00:00)`). Backfill via argument.
+- **Input:** ingen — kørslen er **inkrementel** og henter fra vandmærket (sidste fuldførte dag)
+  frem til i går, i ugevise chunks. På tom database backfiller den fra `BACKFILL_START` (feb 2025).
+- **Genoptagelse:** vandmærket udledes af `meta_ingest_run` (seneste `to_date` med `status='done'`,
+  `mode='incremental'`) — en fejlet/stoppet kørsel hentes automatisk næste gang.
+- **Gap-fill:** en valgfri `{"from","to"}`-argument til `process()` genindlæser en bestemt periode
+  (`mode='manual'`) uden at flytte vandmærket.
 - **Output:** rækker i SQL Server-fakta-/dimensionstabeller + rå JSON i staging.
-- **Idempotens:** upsert pr. (stat, dato) — genkørsel af samme interval må ikke duplikere.
+- **Idempotens:** upsert pr. (dato, kanal, kilde, evt. sub-dim) — genkørsel duplikerer ikke.
 
 ## 3. Systemer & adgang
 
 | System | Rolle | Adgang |
 |--------|-------|--------|
 | boost.ai Statistics API v2 | Datakilde | OAuth2 client_credentials, IP-whitelisted |
-| MS SQL Server | Datalager | **[UDFYLDES: server / database / login]** |
+| MS SQL Server | Datalager | Connection string i OO-constant `Chat Statistics Connection String` (SQLAlchemy-URL, trusted connection, ODBC Driver 17). Server `SRVSQLHOTEL05`, database `ChatUsageStats` |
 | OpenOrchestrator | Kørsel, credentials, constants, logning | Connection via args |
 | PowerBI | Rapportering (uden for robottens scope) | Kobles på SQL Server |
 
@@ -50,23 +55,27 @@ grant_type=client_credentials, client_id, client_secret, scope=analytics:v1
 
 ## 4. Proces (detaljerede trin)
 
-1. `initialize`: hent OAuth2-token (fail-fast ved auth/scope/whitelist-fejl); test DB-forbindelse.
-2. `process`: bestem datointerval (gårsdag ved nightly; backfill-interval ved argument).
-3. For hver valgt stat (jf. §5):
-   a. `POST` til boost-endpointet med søgefilter for intervallet.
+1. `initialize`: valider konfiguration + credentials (fail-fast).
+2. `process`: bestem interval (vandmærke→i går; eller `{"from","to"}`-argument) og del i ugevise chunks.
+3. For hvert chunk (én `meta_ingest_run`), for hver KPI × kanal × kilde:
+   a. `POST` til boost-endpointet med søgefilter (inkl. `is_voice` + evt. `visited_url_text`).
    b. Gem rå svar i `stg_raw_response`.
-   c. Normalisér JSON → fakta-/dimensionsrækker.
-   d. Upsert til SQL Server (idempotent pr. stat+dato).
-4. Log resultat (antal rækker pr. stat) til OpenOrchestrator.
+   c. Normalisér JSON → faktarækker (drop tomme null-rækker); stempl kanal/kilde/`run_id`.
+   d. Upsert til SQL Server (idempotent).
+4. Marker kørslen `done` (rykker vandmærket for inkrementelle chunks) og log resultat.
 
 For tidsserier hentes pr. dag via `histogram/{stat}` med `group_by=day` (én række pr. dag),
 så daglige tal er korrekte uanset om robotten kører bagud i tid.
 
 ## 5. KPI'er & endpoint-mapping (verificeret mod tenant)
 
-Alle nedenstående gav **200 OK med reelle data** i spiken. Endeligt KPI-udvalg til
-*første* datamodel: **[UDFYLDES med Andreas — "få stabile KPI'er"]**. Forslag til
-første bølge markeret ⭐.
+Alle nedenstående gav **200 OK med reelle data** i spiken. **Aktivt udvalg** (kundegodkendt):
+conversations/messages, human transfer, sentiment, conversation + message feedback,
+**conversation insight** (via `conversation_review` — `conversation_quality` er tom i tenanten),
+token usage, goals (started/completed) og intents.
+
+**To filtre lægges på alle datapunkter:** kanal (voice/chat via `is_voice`) og kommune/kilde
+(via `visited_url_text` + `dim_source`-opslag). Se datamodel §6.
 
 | KPI | Endpoint | Centrale JSON-felter |
 |-----|----------|----------------------|
@@ -92,26 +101,32 @@ første bølge markeret ⭐.
 - `histogram/{stat}` → `{label, histogram: [{...felter, period}, ...]}`
 - `aggregates/token_usage` → liste af objekter
 
-## 6. Datamodel (forslag — færdiggøres med endeligt KPI-udvalg)
+## 6. Datamodel (relationelt stjerneskema — implementeret i `schema.py`)
 
-Korn = **pr. dag pr. stat**. Unik nøgle muliggør idempotent upsert.
+Korn = **dato × kanal × kilde**, daglig granularitet. Unik nøgle muliggør idempotent upsert.
 
-**Staging:**
-- `stg_raw_response(id, stat, from_date, to_date, fetched_at, payload_json)`
+**Dimensioner (seedede):**
+- `dim_channel(channel)` — chat, voice.
+- `dim_source(domain, municipality)` — opslag: registrerbart domæne → kommunenavn (udvidbar;
+  ukendte domæner får domænet som label; `dendigitalehotline.dk` → "DDH-portal").
 
-**Dimensioner:** `dim_date`, `dim_stat_type`, `dim_intent`, `dim_device`, `dim_source_url`, `dim_goal`, `dim_model`.
+**Fakta (daglige; hver med `run_id`, `loaded_at`):** `fact_conversations_daily`,
+`fact_human_transfer_daily`, `fact_sentiment_daily`, `fact_conversation_feedback_daily`,
+`fact_message_feedback_daily`, `fact_conversation_insight_daily`, `fact_token_usage_daily`
+(+ vendor/feature/model), `fact_goals_daily` (+ goal_id/metric), `fact_intents_daily` (+ intent_id),
+`fact_human_chat_skill_daily` (+ skill_id — skill-navnet bærer kommune for voice).
 
-**Fakta (pr. dag):**
-- `fact_conversations_daily` (conversations, billable, messages, bot/customer/human_chat)
-- `fact_human_chat_daily` (va_only, unassisted, assisted)
-- `fact_feedback_daily` (conversation + message feedback)
-- `fact_sentiment_daily` (positive/neutral/negative)
-- `fact_quality_daily` (kvalitetslabels)
-- `fact_intent_freq_daily` (intent_id, count)
-- `fact_goals_daily` (goal_id, started, completed)
-- `fact_token_usage_daily` (model, prompt/completion/total tokens, counts)
+**Kanal/kommune-note (verificeret mod live data):** Kommune via `source_url` virker for **chat**;
+**voice** har intet source_url (telefon), så voice-kommune aflæses i stedet af `human_chat_skill`
+(`Voice_Aarhus`…). `dim_source.is_total` markerer `(alle)`-totalen, som ikke må summes med
+kommune-rækkerne (dobbelttælling; totalen inkluderer også portal/utagget trafik).
 
-DDL-ejerskab og om databasen allerede findes: **[UDFYLDES]**.
+**Audit/staging:**
+- `meta_ingest_run(run_id, started_at, finished_at, from_date, to_date, mode, ingest_version, status, rows_written, error)`.
+- `stg_raw_response(id, run_id, kpi, channel, domain, from_date, to_date, fetched_at, payload_json)`.
+
+Robotten opretter tabellerne on-demand via SQLAlchemy (`database.py`) i `ChatUsageStats` — samme
+kode kører lokalt på SQLite. DDL-ejerskab / om et fast skema skal forvaltes af DBA: **[UDFYLDES]**.
 
 ## 7. Forretningsregler & fejlhåndtering
 
@@ -138,7 +153,8 @@ heller ikke samtaleindhold. **[UDFYLDES: evt. opbevaringsperiode for staging.]**
 
 ## 10. Åbne punkter (afklares med Andreas)
 
-1. **SQL Server:** server, database, login; findes skema/DB, eller leverer vi DDL? Hvem ejer skemaændringer?
+1. **SQL Server:** ✅ afklaret — connection via OO-constant `Chat Statistics Connection String`
+   (`SRVSQLHOTEL05` / `ChatUsageStats`, trusted connection). Tilbage: ejer DBA skemaet, eller opretter robotten tabeller?
 2. **Backfill-horisont:** hvor langt tilbage henter første kørsel (fx 12 mdr.)?
 3. **Endeligt KPI-udvalg** til første datamodel (jf. ⭐ i §5).
 4. **Tidszone-konvention** for `from_date`/`to_date` (anbefaling: konsekvent `+02:00`/`+01:00` eller UTC).
